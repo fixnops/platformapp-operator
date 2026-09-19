@@ -1,0 +1,11 @@
+apiVersion: apps.fixnops.com/v1alpha1
+kind: PlatformApp
+metadata:
+  labels:
+    app.kubernetes.io/name: platformapp-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: nginx-demo
+  namespace: platformapp-demo
+spec:
+  image: nginx:1.27
+  port: 80
