@@ -18,10 +18,13 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"reflect"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -31,6 +34,12 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	appsv1alpha1 "github.com/fixnops/platformapp-operator/api/v1alpha1"
+)
+
+const (
+	conditionAvailable   = "Available"
+	conditionProgressing = "Progressing"
+	conditionDegraded    = "Degraded"
 )
 
 // PlatformAppReconciler reconciles a PlatformApp object.
@@ -198,7 +207,127 @@ func (r *PlatformAppReconciler) Reconcile(
 		"operation", serviceOperation,
 	)
 
+	statusChanged, err := r.updateStatus(
+		ctx,
+		platformApp,
+		deployment,
+		desiredReplicas,
+	)
+	if err != nil {
+		log.Error(
+			err,
+			"Failed to update PlatformApp status",
+			"namespace", platformApp.Namespace,
+			"name", platformApp.Name,
+		)
+		return ctrl.Result{}, err
+	}
+
+	if statusChanged {
+		log.Info(
+			"Updated PlatformApp status",
+			"namespace", platformApp.Namespace,
+			"name", platformApp.Name,
+			"observedGeneration", platformApp.Status.ObservedGeneration,
+			"readyReplicas", platformApp.Status.ReadyReplicas,
+		)
+	}
+
 	return ctrl.Result{}, nil
+}
+
+// updateStatus calculates and writes the observed PlatformApp state.
+//
+// It returns true when a Kubernetes status patch was necessary. Avoiding an
+// unnecessary patch prevents stable objects from continuously reconciling
+// because of their own status updates.
+func (r *PlatformAppReconciler) updateStatus(
+	ctx context.Context,
+	platformApp *appsv1alpha1.PlatformApp,
+	deployment *appsv1.Deployment,
+	desiredReplicas int32,
+) (bool, error) {
+	statusBeforeChange := platformApp.DeepCopy()
+
+	readyReplicas := deployment.Status.ReadyReplicas
+	isAvailable := readyReplicas >= desiredReplicas
+
+	platformApp.Status.ObservedGeneration = platformApp.Generation
+	platformApp.Status.ReadyReplicas = readyReplicas
+
+	if isAvailable {
+		apimeta.SetStatusCondition(
+			&platformApp.Status.Conditions,
+			metav1.Condition{
+				Type:               conditionAvailable,
+				Status:             metav1.ConditionTrue,
+				Reason:             "DeploymentAvailable",
+				Message:            fmt.Sprintf("%d of %d requested replicas are ready", readyReplicas, desiredReplicas),
+				ObservedGeneration: platformApp.Generation,
+			},
+		)
+
+		apimeta.SetStatusCondition(
+			&platformApp.Status.Conditions,
+			metav1.Condition{
+				Type:               conditionProgressing,
+				Status:             metav1.ConditionFalse,
+				Reason:             "DeploymentComplete",
+				Message:            "All requested replicas are ready",
+				ObservedGeneration: platformApp.Generation,
+			},
+		)
+	} else {
+		apimeta.SetStatusCondition(
+			&platformApp.Status.Conditions,
+			metav1.Condition{
+				Type:               conditionAvailable,
+				Status:             metav1.ConditionFalse,
+				Reason:             "ReplicasNotReady",
+				Message:            fmt.Sprintf("%d of %d requested replicas are ready", readyReplicas, desiredReplicas),
+				ObservedGeneration: platformApp.Generation,
+			},
+		)
+
+		apimeta.SetStatusCondition(
+			&platformApp.Status.Conditions,
+			metav1.Condition{
+				Type:               conditionProgressing,
+				Status:             metav1.ConditionTrue,
+				Reason:             "WaitingForReplicas",
+				Message:            fmt.Sprintf("Waiting for %d requested replicas to become ready", desiredReplicas),
+				ObservedGeneration: platformApp.Generation,
+			},
+		)
+	}
+
+	apimeta.SetStatusCondition(
+		&platformApp.Status.Conditions,
+		metav1.Condition{
+			Type:               conditionDegraded,
+			Status:             metav1.ConditionFalse,
+			Reason:             "ReconciliationSucceeded",
+			Message:            "Deployment and Service reconciliation succeeded",
+			ObservedGeneration: platformApp.Generation,
+		},
+	)
+
+	if reflect.DeepEqual(
+		statusBeforeChange.Status,
+		platformApp.Status,
+	) {
+		return false, nil
+	}
+
+	if err := r.Status().Patch(
+		ctx,
+		platformApp,
+		client.MergeFrom(statusBeforeChange),
+	); err != nil {
+		return false, fmt.Errorf("patch PlatformApp status: %w", err)
+	}
+
+	return true, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

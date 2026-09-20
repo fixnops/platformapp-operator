@@ -22,6 +22,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -44,13 +45,13 @@ var _ = Describe("PlatformApp Controller", func() {
 		}
 
 		BeforeEach(func() {
-			By("creating the PlatformApp custom resource")
+			By("creating a valid PlatformApp custom resource")
 
-			existingResource := &appsv1alpha1.PlatformApp{}
+			platformApp := &appsv1alpha1.PlatformApp{}
 			err := k8sClient.Get(
 				ctx,
 				typeNamespacedName,
-				existingResource,
+				platformApp,
 			)
 
 			if errors.IsNotFound(err) {
@@ -66,31 +67,32 @@ var _ = Describe("PlatformApp Controller", func() {
 				}
 
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
-			} else {
-				Expect(err).NotTo(HaveOccurred())
+				return
 			}
+
+			Expect(err).NotTo(HaveOccurred())
 		})
 
 		AfterEach(func() {
 			resource := &appsv1alpha1.PlatformApp{}
+
 			err := k8sClient.Get(
 				ctx,
 				typeNamespacedName,
 				resource,
 			)
-
 			if errors.IsNotFound(err) {
 				return
 			}
 
 			Expect(err).NotTo(HaveOccurred())
 
-			By("cleaning up the PlatformApp custom resource")
+			By("cleaning up the PlatformApp resource")
 			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 		})
 
-		It("should successfully reconcile the resource", func() {
-			By("reconciling the created PlatformApp")
+		It("should reconcile the resource and report progressing status", func() {
+			By("reconciling the PlatformApp")
 
 			controllerReconciler := &PlatformAppReconciler{
 				Client: k8sClient,
@@ -103,8 +105,74 @@ var _ = Describe("PlatformApp Controller", func() {
 					NamespacedName: typeNamespacedName,
 				},
 			)
-
 			Expect(err).NotTo(HaveOccurred())
+
+			By("fetching the updated PlatformApp status")
+
+			updatedPlatformApp := &appsv1alpha1.PlatformApp{}
+			Expect(
+				k8sClient.Get(
+					ctx,
+					typeNamespacedName,
+					updatedPlatformApp,
+				),
+			).To(Succeed())
+
+			By("verifying the processed generation")
+
+			Expect(
+				updatedPlatformApp.Status.ObservedGeneration,
+			).To(Equal(updatedPlatformApp.Generation))
+
+			By("verifying that no replicas are ready in envtest")
+
+			Expect(
+				updatedPlatformApp.Status.ReadyReplicas,
+			).To(Equal(int32(0)))
+
+			By("verifying the Available condition")
+
+			availableCondition := apimeta.FindStatusCondition(
+				updatedPlatformApp.Status.Conditions,
+				conditionAvailable,
+			)
+
+			Expect(availableCondition).NotTo(BeNil())
+			Expect(availableCondition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(availableCondition.Reason).To(Equal("ReplicasNotReady"))
+			Expect(availableCondition.ObservedGeneration).To(
+				Equal(updatedPlatformApp.Generation),
+			)
+
+			By("verifying the Progressing condition")
+
+			progressingCondition := apimeta.FindStatusCondition(
+				updatedPlatformApp.Status.Conditions,
+				conditionProgressing,
+			)
+
+			Expect(progressingCondition).NotTo(BeNil())
+			Expect(progressingCondition.Status).To(Equal(metav1.ConditionTrue))
+			Expect(progressingCondition.Reason).To(Equal("WaitingForReplicas"))
+			Expect(progressingCondition.ObservedGeneration).To(
+				Equal(updatedPlatformApp.Generation),
+			)
+
+			By("verifying the Degraded condition")
+
+			degradedCondition := apimeta.FindStatusCondition(
+				updatedPlatformApp.Status.Conditions,
+				conditionDegraded,
+			)
+
+			Expect(degradedCondition).NotTo(BeNil())
+			Expect(degradedCondition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(degradedCondition.Reason).To(
+				Equal("ReconciliationSucceeded"),
+			)
+			Expect(degradedCondition.ObservedGeneration).To(
+				Equal(updatedPlatformApp.Generation),
+			)
 		})
 	})
 })
