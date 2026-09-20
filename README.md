@@ -419,6 +419,7 @@ make uninstall
 
 Deleting the CRD deletes all stored PlatformApp custom resources. Use that command carefully.
 
+
 ## Learning Guide
 
 Detailed implementation and interview notes:
@@ -426,6 +427,8 @@ Detailed implementation and interview notes:
 1. [Project Setup and Operator Foundations](docs/01-project-setup.md)
 2. [PlatformApp API and CRD](docs/02-api-and-crd.md)
 3. [Reconciliation, Ownership, and Self-Healing](docs/03-reconciliation.md)
+4. [Status, Conditions, Errors, and Retries](docs/04-status-errors-and-retries.md)
+5. [Controller Testing with Envtest](docs/05-controller-testing.md)
 
 ## Current Project Status
 
