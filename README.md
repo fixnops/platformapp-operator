@@ -432,6 +432,7 @@ Detailed implementation and interview notes:
 6. [Container Image and In-Cluster Deployment](docs/06-container-and-deployment.md)
 7. [RBAC, Runtime Security, Health, and Metrics](docs/07-rbac-security-and-observability.md)
 8. [High Availability and Leader Election](docs/08-high-availability-and-leader-election.md)
+9. [Interview Guide and Repeatable Operator-Building Checklist](docs/09-interview-guide-and-operator-checklist.md)
 
 ## Current Project Status
 
