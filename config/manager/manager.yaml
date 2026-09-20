@@ -21,7 +21,7 @@ spec:
     matchLabels:
       control-plane: controller-manager
       app.kubernetes.io/name: platformapp-operator
-  replicas: 1
+  replicas: 2
   template:
     metadata:
       annotations:
@@ -50,6 +50,16 @@ spec:
       #             operator: In
       #             values:
       #               - linux
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  control-plane: controller-manager
+                  app.kubernetes.io/name: platformapp-operator
+              topologyKey: kubernetes.io/hostname
       securityContext:
         # Projects are configured by default to adhere to the "restricted" Pod Security Standards.
         # This ensures that deployments meet the highest security requirements for Kubernetes.
