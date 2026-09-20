@@ -10,10 +10,8 @@ rules:
   - services
   verbs:
   - create
-  - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -22,10 +20,8 @@ rules:
   - deployments
   verbs:
   - create
-  - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -33,19 +29,9 @@ rules:
   resources:
   - platformapps
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch
-- apiGroups:
-  - apps.fixnops.com
-  resources:
-  - platformapps/finalizers
-  verbs:
-  - update
 - apiGroups:
   - apps.fixnops.com
   resources:
