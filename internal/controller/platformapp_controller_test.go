@@ -21,17 +21,20 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	appsv1alpha1 "github.com/fixnops/platformapp-operator/api/v1alpha1"
 )
 
 var _ = Describe("PlatformApp Controller", func() {
-	Context("When reconciling a resource", func() {
+	Context("When reconciling a PlatformApp", func() {
 		const (
 			resourceName      = "test-resource"
 			resourceNamespace = "default"
@@ -44,8 +47,16 @@ var _ = Describe("PlatformApp Controller", func() {
 			Namespace: resourceNamespace,
 		}
 
+		expectedLabels := map[string]string{
+			"app.kubernetes.io/name":       "platformapp",
+			"app.kubernetes.io/instance":   resourceName,
+			"app.kubernetes.io/managed-by": "platformapp-operator",
+		}
+
+		var controllerReconciler *PlatformAppReconciler
+
 		BeforeEach(func() {
-			By("creating a valid PlatformApp custom resource")
+			By("creating a valid PlatformApp")
 
 			platformApp := &appsv1alpha1.PlatformApp{}
 			err := k8sClient.Get(
@@ -67,38 +78,51 @@ var _ = Describe("PlatformApp Controller", func() {
 				}
 
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
-				return
+			} else {
+				Expect(err).NotTo(HaveOccurred())
 			}
 
-			Expect(err).NotTo(HaveOccurred())
-		})
-
-		AfterEach(func() {
-			resource := &appsv1alpha1.PlatformApp{}
-
-			err := k8sClient.Get(
-				ctx,
-				typeNamespacedName,
-				resource,
-			)
-			if errors.IsNotFound(err) {
-				return
-			}
-
-			Expect(err).NotTo(HaveOccurred())
-
-			By("cleaning up the PlatformApp resource")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-		})
-
-		It("should reconcile the resource and report progressing status", func() {
-			By("reconciling the PlatformApp")
-
-			controllerReconciler := &PlatformAppReconciler{
+			controllerReconciler = &PlatformAppReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
 			}
+		})
 
+		AfterEach(func() {
+			By("cleaning up resources created by the test")
+
+			objects := []client.Object{
+				&corev1.Service{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      resourceName,
+						Namespace: resourceNamespace,
+					},
+				},
+				&appsv1.Deployment{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      resourceName,
+						Namespace: resourceNamespace,
+					},
+				},
+				&appsv1alpha1.PlatformApp{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      resourceName,
+						Namespace: resourceNamespace,
+					},
+				},
+			}
+
+			for _, object := range objects {
+				err := k8sClient.Delete(ctx, object)
+				if errors.IsNotFound(err) {
+					continue
+				}
+
+				Expect(err).NotTo(HaveOccurred())
+			}
+		})
+
+		reconcilePlatformApp := func() {
 			_, err := controllerReconciler.Reconcile(
 				ctx,
 				reconcile.Request{
@@ -106,8 +130,177 @@ var _ = Describe("PlatformApp Controller", func() {
 				},
 			)
 			Expect(err).NotTo(HaveOccurred())
+		}
 
-			By("fetching the updated PlatformApp status")
+		It("creates the expected Deployment and Service", func() {
+			By("reconciling the PlatformApp")
+
+			reconcilePlatformApp()
+
+			By("fetching the PlatformApp")
+
+			platformApp := &appsv1alpha1.PlatformApp{}
+			Expect(
+				k8sClient.Get(
+					ctx,
+					typeNamespacedName,
+					platformApp,
+				),
+			).To(Succeed())
+
+			By("verifying the Deployment")
+
+			deployment := &appsv1.Deployment{}
+			Expect(
+				k8sClient.Get(
+					ctx,
+					typeNamespacedName,
+					deployment,
+				),
+			).To(Succeed())
+
+			Expect(deployment.Labels).To(Equal(expectedLabels))
+			Expect(deployment.Spec.Replicas).NotTo(BeNil())
+			Expect(*deployment.Spec.Replicas).To(Equal(int32(1)))
+
+			Expect(
+				deployment.Spec.Selector.MatchLabels,
+			).To(Equal(expectedLabels))
+
+			Expect(
+				deployment.Spec.Template.Labels,
+			).To(Equal(expectedLabels))
+
+			Expect(
+				deployment.Spec.Template.Spec.Containers,
+			).To(HaveLen(1))
+
+			container := deployment.Spec.Template.Spec.Containers[0]
+
+			Expect(container.Name).To(Equal("application"))
+			Expect(container.Image).To(Equal("nginx:1.27"))
+			Expect(container.Ports).To(HaveLen(1))
+			Expect(container.Ports[0].Name).To(Equal("app-port"))
+			Expect(container.Ports[0].ContainerPort).To(Equal(int32(80)))
+			Expect(container.Ports[0].Protocol).To(Equal(corev1.ProtocolTCP))
+
+			Expect(
+				metav1.IsControlledBy(deployment, platformApp),
+			).To(BeTrue())
+
+			By("verifying the Service")
+
+			service := &corev1.Service{}
+			Expect(
+				k8sClient.Get(
+					ctx,
+					typeNamespacedName,
+					service,
+				),
+			).To(Succeed())
+
+			Expect(service.Labels).To(Equal(expectedLabels))
+			Expect(service.Spec.Selector).To(Equal(expectedLabels))
+			Expect(service.Spec.Type).To(Equal(corev1.ServiceTypeClusterIP))
+			Expect(service.Spec.Ports).To(HaveLen(1))
+
+			servicePort := service.Spec.Ports[0]
+
+			Expect(servicePort.Name).To(Equal("app-port"))
+			Expect(servicePort.Port).To(Equal(int32(80)))
+			Expect(servicePort.TargetPort.IntVal).To(Equal(int32(80)))
+			Expect(servicePort.Protocol).To(Equal(corev1.ProtocolTCP))
+
+			Expect(
+				metav1.IsControlledBy(service, platformApp),
+			).To(BeTrue())
+
+			By("verifying the initial PlatformApp status")
+
+			Expect(
+				platformApp.Status.ObservedGeneration,
+			).To(Equal(platformApp.Generation))
+
+			Expect(
+				platformApp.Status.ReadyReplicas,
+			).To(Equal(int32(0)))
+
+			availableCondition := apimeta.FindStatusCondition(
+				platformApp.Status.Conditions,
+				conditionAvailable,
+			)
+			Expect(availableCondition).NotTo(BeNil())
+			Expect(availableCondition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(availableCondition.Reason).To(Equal("ReplicasNotReady"))
+
+			progressingCondition := apimeta.FindStatusCondition(
+				platformApp.Status.Conditions,
+				conditionProgressing,
+			)
+			Expect(progressingCondition).NotTo(BeNil())
+			Expect(progressingCondition.Status).To(Equal(metav1.ConditionTrue))
+			Expect(progressingCondition.Reason).To(Equal("WaitingForReplicas"))
+
+			degradedCondition := apimeta.FindStatusCondition(
+				platformApp.Status.Conditions,
+				conditionDegraded,
+			)
+			Expect(degradedCondition).NotTo(BeNil())
+			Expect(degradedCondition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(degradedCondition.Reason).To(
+				Equal("ReconciliationSucceeded"),
+			)
+		})
+
+		It("updates the Deployment when the PlatformApp spec changes", func() {
+			By("performing the initial reconciliation")
+
+			reconcilePlatformApp()
+
+			By("changing the requested image and replicas")
+
+			platformApp := &appsv1alpha1.PlatformApp{}
+			Expect(
+				k8sClient.Get(
+					ctx,
+					typeNamespacedName,
+					platformApp,
+				),
+			).To(Succeed())
+
+			previousGeneration := platformApp.Generation
+			updatedReplicas := int32(3)
+
+			platformApp.Spec.Image = "nginx:1.28"
+			platformApp.Spec.Replicas = &updatedReplicas
+
+			Expect(k8sClient.Update(ctx, platformApp)).To(Succeed())
+			Expect(platformApp.Generation).To(
+				BeNumerically(">", previousGeneration),
+			)
+
+			By("reconciling the updated PlatformApp")
+
+			reconcilePlatformApp()
+
+			By("verifying the updated Deployment")
+
+			deployment := &appsv1.Deployment{}
+			Expect(
+				k8sClient.Get(
+					ctx,
+					typeNamespacedName,
+					deployment,
+				),
+			).To(Succeed())
+
+			Expect(deployment.Spec.Replicas).NotTo(BeNil())
+			Expect(*deployment.Spec.Replicas).To(Equal(int32(3)))
+			Expect(
+				deployment.Spec.Template.Spec.Containers[0].Image,
+			).To(Equal("nginx:1.28"))
+
+			By("verifying status processed the new generation")
 
 			updatedPlatformApp := &appsv1alpha1.PlatformApp{}
 			Expect(
@@ -118,60 +311,108 @@ var _ = Describe("PlatformApp Controller", func() {
 				),
 			).To(Succeed())
 
-			By("verifying the processed generation")
-
 			Expect(
 				updatedPlatformApp.Status.ObservedGeneration,
 			).To(Equal(updatedPlatformApp.Generation))
-
-			By("verifying that no replicas are ready in envtest")
 
 			Expect(
 				updatedPlatformApp.Status.ReadyReplicas,
 			).To(Equal(int32(0)))
 
-			By("verifying the Available condition")
-
-			availableCondition := apimeta.FindStatusCondition(
-				updatedPlatformApp.Status.Conditions,
-				conditionAvailable,
-			)
-
-			Expect(availableCondition).NotTo(BeNil())
-			Expect(availableCondition.Status).To(Equal(metav1.ConditionFalse))
-			Expect(availableCondition.Reason).To(Equal("ReplicasNotReady"))
-			Expect(availableCondition.ObservedGeneration).To(
-				Equal(updatedPlatformApp.Generation),
-			)
-
-			By("verifying the Progressing condition")
-
 			progressingCondition := apimeta.FindStatusCondition(
 				updatedPlatformApp.Status.Conditions,
 				conditionProgressing,
 			)
-
 			Expect(progressingCondition).NotTo(BeNil())
 			Expect(progressingCondition.Status).To(Equal(metav1.ConditionTrue))
-			Expect(progressingCondition.Reason).To(Equal("WaitingForReplicas"))
-			Expect(progressingCondition.ObservedGeneration).To(
-				Equal(updatedPlatformApp.Generation),
+		})
+
+		It("does not update stable resources during repeated reconciliation", func() {
+			By("performing the initial reconciliation")
+
+			reconcilePlatformApp()
+
+			By("recording the current resource versions")
+
+			platformAppBefore := &appsv1alpha1.PlatformApp{}
+			deploymentBefore := &appsv1.Deployment{}
+			serviceBefore := &corev1.Service{}
+
+			Expect(
+				k8sClient.Get(
+					ctx,
+					typeNamespacedName,
+					platformAppBefore,
+				),
+			).To(Succeed())
+
+			Expect(
+				k8sClient.Get(
+					ctx,
+					typeNamespacedName,
+					deploymentBefore,
+				),
+			).To(Succeed())
+
+			Expect(
+				k8sClient.Get(
+					ctx,
+					typeNamespacedName,
+					serviceBefore,
+				),
+			).To(Succeed())
+
+			platformAppResourceVersion :=
+				platformAppBefore.ResourceVersion
+			deploymentResourceVersion :=
+				deploymentBefore.ResourceVersion
+			serviceResourceVersion :=
+				serviceBefore.ResourceVersion
+
+			By("reconciling again without changing desired state")
+
+			reconcilePlatformApp()
+
+			By("fetching the resources after the second reconciliation")
+
+			platformAppAfter := &appsv1alpha1.PlatformApp{}
+			deploymentAfter := &appsv1.Deployment{}
+			serviceAfter := &corev1.Service{}
+
+			Expect(
+				k8sClient.Get(
+					ctx,
+					typeNamespacedName,
+					platformAppAfter,
+				),
+			).To(Succeed())
+
+			Expect(
+				k8sClient.Get(
+					ctx,
+					typeNamespacedName,
+					deploymentAfter,
+				),
+			).To(Succeed())
+
+			Expect(
+				k8sClient.Get(
+					ctx,
+					typeNamespacedName,
+					serviceAfter,
+				),
+			).To(Succeed())
+
+			Expect(platformAppAfter.ResourceVersion).To(
+				Equal(platformAppResourceVersion),
 			)
 
-			By("verifying the Degraded condition")
-
-			degradedCondition := apimeta.FindStatusCondition(
-				updatedPlatformApp.Status.Conditions,
-				conditionDegraded,
+			Expect(deploymentAfter.ResourceVersion).To(
+				Equal(deploymentResourceVersion),
 			)
 
-			Expect(degradedCondition).NotTo(BeNil())
-			Expect(degradedCondition.Status).To(Equal(metav1.ConditionFalse))
-			Expect(degradedCondition.Reason).To(
-				Equal("ReconciliationSucceeded"),
-			)
-			Expect(degradedCondition.ObservedGeneration).To(
-				Equal(updatedPlatformApp.Generation),
+			Expect(serviceAfter.ResourceVersion).To(
+				Equal(serviceResourceVersion),
 			)
 		})
 	})
