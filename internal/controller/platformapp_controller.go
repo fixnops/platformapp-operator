@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 
@@ -149,7 +150,12 @@ func (r *PlatformAppReconciler) Reconcile(
 			"namespace", platformApp.Namespace,
 			"name", platformApp.Name,
 		)
-		return ctrl.Result{}, err
+		return ctrl.Result{}, r.handleReconcileError(
+			ctx,
+			platformApp,
+			"DeploymentReconciliationFailed",
+			err,
+		)
 	}
 
 	log.Info(
@@ -197,7 +203,12 @@ func (r *PlatformAppReconciler) Reconcile(
 			"namespace", platformApp.Namespace,
 			"name", platformApp.Name,
 		)
-		return ctrl.Result{}, err
+		return ctrl.Result{}, r.handleReconcileError(
+			ctx,
+			platformApp,
+			"ServiceReconciliationFailed",
+			err,
+		)
 	}
 
 	log.Info(
@@ -236,11 +247,82 @@ func (r *PlatformAppReconciler) Reconcile(
 	return ctrl.Result{}, nil
 }
 
+// handleReconcileError records a failed reconciliation in PlatformApp status
+// and returns the original error so controller-runtime performs a
+// rate-limited retry.
+func (r *PlatformAppReconciler) handleReconcileError(
+	ctx context.Context,
+	platformApp *appsv1alpha1.PlatformApp,
+	reason string,
+	reconcileErr error,
+) error {
+	statusBeforeChange := platformApp.DeepCopy()
+
+	platformApp.Status.ObservedGeneration = platformApp.Generation
+
+	apimeta.SetStatusCondition(
+		&platformApp.Status.Conditions,
+		metav1.Condition{
+			Type:               conditionAvailable,
+			Status:             metav1.ConditionFalse,
+			Reason:             "ReconciliationFailed",
+			Message:            "The Operator could not complete reconciliation",
+			ObservedGeneration: platformApp.Generation,
+		},
+	)
+
+	apimeta.SetStatusCondition(
+		&platformApp.Status.Conditions,
+		metav1.Condition{
+			Type:               conditionProgressing,
+			Status:             metav1.ConditionFalse,
+			Reason:             "ReconciliationFailed",
+			Message:            "Reconciliation stopped because an error occurred",
+			ObservedGeneration: platformApp.Generation,
+		},
+	)
+
+	apimeta.SetStatusCondition(
+		&platformApp.Status.Conditions,
+		metav1.Condition{
+			Type:               conditionDegraded,
+			Status:             metav1.ConditionTrue,
+			Reason:             reason,
+			Message:            reconcileErr.Error(),
+			ObservedGeneration: platformApp.Generation,
+		},
+	)
+
+	if reflect.DeepEqual(
+		statusBeforeChange.Status,
+		platformApp.Status,
+	) {
+		return reconcileErr
+	}
+
+	if statusErr := r.Status().Patch(
+		ctx,
+		platformApp,
+		client.MergeFrom(statusBeforeChange),
+	); statusErr != nil {
+		return errors.Join(
+			reconcileErr,
+			fmt.Errorf(
+				"patch degraded PlatformApp status: %w",
+				statusErr,
+			),
+		)
+	}
+
+	return reconcileErr
+}
+
 // updateStatus calculates and writes the observed PlatformApp state.
 //
 // It returns true when a Kubernetes status patch was necessary. Avoiding an
 // unnecessary patch prevents stable objects from continuously reconciling
 // because of their own status updates.
+
 func (r *PlatformAppReconciler) updateStatus(
 	ctx context.Context,
 	platformApp *appsv1alpha1.PlatformApp,
