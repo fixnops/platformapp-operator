@@ -429,6 +429,8 @@ Detailed implementation and interview notes:
 3. [Reconciliation, Ownership, and Self-Healing](docs/03-reconciliation.md)
 4. [Status, Conditions, Errors, and Retries](docs/04-status-errors-and-retries.md)
 5. [Controller Testing with Envtest](docs/05-controller-testing.md)
+6. [Container Image and In-Cluster Deployment](docs/06-container-and-deployment.md)
+7. [RBAC, Runtime Security, Health, and Metrics](docs/07-rbac-security-and-observability.md)
 
 ## Current Project Status
 
