@@ -104,6 +104,12 @@ var _ = Describe("PlatformApp Controller", func() {
 						Namespace: resourceNamespace,
 					},
 				},
+				&corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      resourceName + "-owner",
+						Namespace: resourceNamespace,
+					},
+				},
 				&appsv1alpha1.PlatformApp{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
@@ -162,18 +168,13 @@ var _ = Describe("PlatformApp Controller", func() {
 			Expect(deployment.Labels).To(Equal(expectedLabels))
 			Expect(deployment.Spec.Replicas).NotTo(BeNil())
 			Expect(*deployment.Spec.Replicas).To(Equal(int32(1)))
-
-			Expect(
-				deployment.Spec.Selector.MatchLabels,
-			).To(Equal(expectedLabels))
-
-			Expect(
-				deployment.Spec.Template.Labels,
-			).To(Equal(expectedLabels))
-
-			Expect(
-				deployment.Spec.Template.Spec.Containers,
-			).To(HaveLen(1))
+			Expect(deployment.Spec.Selector.MatchLabels).To(
+				Equal(expectedLabels),
+			)
+			Expect(deployment.Spec.Template.Labels).To(
+				Equal(expectedLabels),
+			)
+			Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(1))
 
 			container := deployment.Spec.Template.Spec.Containers[0]
 
@@ -182,7 +183,9 @@ var _ = Describe("PlatformApp Controller", func() {
 			Expect(container.Ports).To(HaveLen(1))
 			Expect(container.Ports[0].Name).To(Equal("app-port"))
 			Expect(container.Ports[0].ContainerPort).To(Equal(int32(80)))
-			Expect(container.Ports[0].Protocol).To(Equal(corev1.ProtocolTCP))
+			Expect(container.Ports[0].Protocol).To(
+				Equal(corev1.ProtocolTCP),
+			)
 
 			Expect(
 				metav1.IsControlledBy(deployment, platformApp),
@@ -217,36 +220,43 @@ var _ = Describe("PlatformApp Controller", func() {
 
 			By("verifying the initial PlatformApp status")
 
-			Expect(
-				platformApp.Status.ObservedGeneration,
-			).To(Equal(platformApp.Generation))
-
-			Expect(
-				platformApp.Status.ReadyReplicas,
-			).To(Equal(int32(0)))
+			Expect(platformApp.Status.ObservedGeneration).To(
+				Equal(platformApp.Generation),
+			)
+			Expect(platformApp.Status.ReadyReplicas).To(Equal(int32(0)))
 
 			availableCondition := apimeta.FindStatusCondition(
 				platformApp.Status.Conditions,
 				conditionAvailable,
 			)
 			Expect(availableCondition).NotTo(BeNil())
-			Expect(availableCondition.Status).To(Equal(metav1.ConditionFalse))
-			Expect(availableCondition.Reason).To(Equal("ReplicasNotReady"))
+			Expect(availableCondition.Status).To(
+				Equal(metav1.ConditionFalse),
+			)
+			Expect(availableCondition.Reason).To(
+				Equal("ReplicasNotReady"),
+			)
 
 			progressingCondition := apimeta.FindStatusCondition(
 				platformApp.Status.Conditions,
 				conditionProgressing,
 			)
 			Expect(progressingCondition).NotTo(BeNil())
-			Expect(progressingCondition.Status).To(Equal(metav1.ConditionTrue))
-			Expect(progressingCondition.Reason).To(Equal("WaitingForReplicas"))
+			Expect(progressingCondition.Status).To(
+				Equal(metav1.ConditionTrue),
+			)
+			Expect(progressingCondition.Reason).To(
+				Equal("WaitingForReplicas"),
+			)
 
 			degradedCondition := apimeta.FindStatusCondition(
 				platformApp.Status.Conditions,
 				conditionDegraded,
 			)
 			Expect(degradedCondition).NotTo(BeNil())
-			Expect(degradedCondition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(degradedCondition.Status).To(
+				Equal(metav1.ConditionFalse),
+			)
 			Expect(degradedCondition.Reason).To(
 				Equal("ReconciliationSucceeded"),
 			)
@@ -296,7 +306,6 @@ var _ = Describe("PlatformApp Controller", func() {
 
 			Expect(deployment.Spec.Replicas).NotTo(BeNil())
 			Expect(*deployment.Spec.Replicas).To(Equal(int32(3)))
-
 			Expect(
 				deployment.Spec.Template.Spec.Containers[0].Image,
 			).To(Equal("nginx:1.28"))
@@ -312,20 +321,21 @@ var _ = Describe("PlatformApp Controller", func() {
 				),
 			).To(Succeed())
 
-			Expect(
-				updatedPlatformApp.Status.ObservedGeneration,
-			).To(Equal(updatedPlatformApp.Generation))
-
-			Expect(
-				updatedPlatformApp.Status.ReadyReplicas,
-			).To(Equal(int32(0)))
+			Expect(updatedPlatformApp.Status.ObservedGeneration).To(
+				Equal(updatedPlatformApp.Generation),
+			)
+			Expect(updatedPlatformApp.Status.ReadyReplicas).To(
+				Equal(int32(0)),
+			)
 
 			progressingCondition := apimeta.FindStatusCondition(
 				updatedPlatformApp.Status.Conditions,
 				conditionProgressing,
 			)
 			Expect(progressingCondition).NotTo(BeNil())
-			Expect(progressingCondition.Status).To(Equal(metav1.ConditionTrue))
+			Expect(progressingCondition.Status).To(
+				Equal(metav1.ConditionTrue),
+			)
 		})
 
 		It("does not update stable resources during repeated reconciliation", func() {
@@ -346,7 +356,6 @@ var _ = Describe("PlatformApp Controller", func() {
 					platformAppBefore,
 				),
 			).To(Succeed())
-
 			Expect(
 				k8sClient.Get(
 					ctx,
@@ -354,7 +363,6 @@ var _ = Describe("PlatformApp Controller", func() {
 					deploymentBefore,
 				),
 			).To(Succeed())
-
 			Expect(
 				k8sClient.Get(
 					ctx,
@@ -387,7 +395,6 @@ var _ = Describe("PlatformApp Controller", func() {
 					platformAppAfter,
 				),
 			).To(Succeed())
-
 			Expect(
 				k8sClient.Get(
 					ctx,
@@ -395,7 +402,6 @@ var _ = Describe("PlatformApp Controller", func() {
 					deploymentAfter,
 				),
 			).To(Succeed())
-
 			Expect(
 				k8sClient.Get(
 					ctx,
@@ -407,11 +413,9 @@ var _ = Describe("PlatformApp Controller", func() {
 			Expect(platformAppAfter.ResourceVersion).To(
 				Equal(platformAppResourceVersion),
 			)
-
 			Expect(deploymentAfter.ResourceVersion).To(
 				Equal(deploymentResourceVersion),
 			)
-
 			Expect(serviceAfter.ResourceVersion).To(
 				Equal(serviceResourceVersion),
 			)
@@ -475,7 +479,6 @@ var _ = Describe("PlatformApp Controller", func() {
 				typeNamespacedName,
 				service,
 			)
-
 			Expect(errors.IsNotFound(serviceErr)).To(BeTrue())
 
 			By("fetching the degraded PlatformApp status")
@@ -489,30 +492,26 @@ var _ = Describe("PlatformApp Controller", func() {
 				),
 			).To(Succeed())
 
-			Expect(
-				platformApp.Status.ObservedGeneration,
-			).To(Equal(platformApp.Generation))
-
-			By("verifying Available is false")
+			Expect(platformApp.Status.ObservedGeneration).To(
+				Equal(platformApp.Generation),
+			)
 
 			availableCondition := apimeta.FindStatusCondition(
 				platformApp.Status.Conditions,
 				conditionAvailable,
 			)
-
 			Expect(availableCondition).NotTo(BeNil())
-			Expect(availableCondition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(availableCondition.Status).To(
+				Equal(metav1.ConditionFalse),
+			)
 			Expect(availableCondition.Reason).To(
 				Equal("ReconciliationFailed"),
 			)
-
-			By("verifying Progressing is false")
 
 			progressingCondition := apimeta.FindStatusCondition(
 				platformApp.Status.Conditions,
 				conditionProgressing,
 			)
-
 			Expect(progressingCondition).NotTo(BeNil())
 			Expect(progressingCondition.Status).To(
 				Equal(metav1.ConditionFalse),
@@ -521,17 +520,134 @@ var _ = Describe("PlatformApp Controller", func() {
 				Equal("ReconciliationFailed"),
 			)
 
-			By("verifying Degraded is true")
+			degradedCondition := apimeta.FindStatusCondition(
+				platformApp.Status.Conditions,
+				conditionDegraded,
+			)
+			Expect(degradedCondition).NotTo(BeNil())
+			Expect(degradedCondition.Status).To(
+				Equal(metav1.ConditionTrue),
+			)
+			Expect(degradedCondition.Reason).To(
+				Equal("DeploymentReconciliationFailed"),
+			)
+			Expect(degradedCondition.Message).NotTo(BeEmpty())
+		})
+
+		It("reports degraded status when Service reconciliation fails", func() {
+			By("creating a ConfigMap that will control the conflicting Service")
+
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName + "-owner",
+					Namespace: resourceNamespace,
+				},
+			}
+
+			Expect(k8sClient.Create(ctx, configMap)).To(Succeed())
+
+			By("creating a Service controlled by another resource")
+
+			conflictingService := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: resourceNamespace,
+					OwnerReferences: []metav1.OwnerReference{
+						*metav1.NewControllerRef(
+							configMap,
+							corev1.SchemeGroupVersion.WithKind("ConfigMap"),
+						),
+					},
+				},
+				Spec: corev1.ServiceSpec{
+					Selector: map[string]string{
+						"existing": "selector",
+					},
+					Ports: []corev1.ServicePort{
+						{
+							Name:     "existing-port",
+							Port:     8080,
+							Protocol: corev1.ProtocolTCP,
+						},
+					},
+				},
+			}
+
+			Expect(
+				k8sClient.Create(ctx, conflictingService),
+			).To(Succeed())
+
+			By("reconciling the PlatformApp")
+
+			_, reconcileErr := controllerReconciler.Reconcile(
+				ctx,
+				reconcile.Request{
+					NamespacedName: typeNamespacedName,
+				},
+			)
+
+			Expect(reconcileErr).To(HaveOccurred())
+
+			By("verifying Deployment reconciliation completed first")
+
+			deployment := &appsv1.Deployment{}
+			Expect(
+				k8sClient.Get(
+					ctx,
+					typeNamespacedName,
+					deployment,
+				),
+			).To(Succeed())
+
+			By("fetching the degraded PlatformApp status")
+
+			platformApp := &appsv1alpha1.PlatformApp{}
+			Expect(
+				k8sClient.Get(
+					ctx,
+					typeNamespacedName,
+					platformApp,
+				),
+			).To(Succeed())
+
+			Expect(platformApp.Status.ObservedGeneration).To(
+				Equal(platformApp.Generation),
+			)
+
+			availableCondition := apimeta.FindStatusCondition(
+				platformApp.Status.Conditions,
+				conditionAvailable,
+			)
+			Expect(availableCondition).NotTo(BeNil())
+			Expect(availableCondition.Status).To(
+				Equal(metav1.ConditionFalse),
+			)
+			Expect(availableCondition.Reason).To(
+				Equal("ReconciliationFailed"),
+			)
+
+			progressingCondition := apimeta.FindStatusCondition(
+				platformApp.Status.Conditions,
+				conditionProgressing,
+			)
+			Expect(progressingCondition).NotTo(BeNil())
+			Expect(progressingCondition.Status).To(
+				Equal(metav1.ConditionFalse),
+			)
+			Expect(progressingCondition.Reason).To(
+				Equal("ReconciliationFailed"),
+			)
 
 			degradedCondition := apimeta.FindStatusCondition(
 				platformApp.Status.Conditions,
 				conditionDegraded,
 			)
-
 			Expect(degradedCondition).NotTo(BeNil())
-			Expect(degradedCondition.Status).To(Equal(metav1.ConditionTrue))
+			Expect(degradedCondition.Status).To(
+				Equal(metav1.ConditionTrue),
+			)
 			Expect(degradedCondition.Reason).To(
-				Equal("DeploymentReconciliationFailed"),
+				Equal("ServiceReconciliationFailed"),
 			)
 			Expect(degradedCondition.Message).NotTo(BeEmpty())
 		})
